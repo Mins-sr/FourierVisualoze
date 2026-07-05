@@ -10,17 +10,20 @@ import {
 
 type MockContext = CanvasRenderingContext2D & {
   calls: string[];
+  textCalls: string[];
 };
 
 function createMockContext(): MockContext {
   const calls: string[] = [];
+  const textCalls: string[] = [];
   const record = (name: string) =>
     vi.fn(() => {
       calls.push(name);
     });
 
-  return {
+  const context = {
     calls,
+    textCalls,
     setTransform: record("setTransform"),
     clearRect: record("clearRect"),
     save: record("save"),
@@ -31,9 +34,14 @@ function createMockContext(): MockContext {
     stroke: record("stroke"),
     fill: record("fill"),
     arc: record("arc"),
-    fillText: record("fillText"),
+    fillText: vi.fn((text: string) => {
+      calls.push("fillText");
+      textCalls.push(text);
+    }),
     setLineDash: record("setLineDash")
   } as unknown as MockContext;
+
+  return context;
 }
 
 function createCanvas(width = 480, height = 300, context = createMockContext()) {
@@ -85,6 +93,9 @@ describe("canvas drawing", () => {
     const spectrumCanvas = createCanvas(520, 260);
     drawSpectrum(spectrumCanvas.canvas, spectrum, 2);
     expect(spectrumCanvas.context.calls.filter((call) => call === "fillText").length).toBeGreaterThan(1);
+    expect(spectrumCanvas.context.textCalls).toContain("重心のずれ");
+    expect(spectrumCanvas.context.textCalls).toContain("Magnitude");
+    expect(spectrumCanvas.context.textCalls).toContain("0.00");
   });
 
   it("draws trace progress overlays for fixed-frequency playback", () => {

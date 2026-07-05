@@ -277,7 +277,7 @@ export function drawSpectrum(canvas: HTMLCanvasElement, spectrum: SpectrumPoint[
   }
 
   const { width, height } = canvas.getBoundingClientRect();
-  const padding = { left: 48, right: 22, top: 28, bottom: 36 };
+  const padding = { left: 66, right: 22, top: 36, bottom: 36 };
   const graphWidth = width - padding.left - padding.right;
   const graphHeight = height - padding.top - padding.bottom;
   const minFrequency = spectrum[0]?.frequency ?? 0;
@@ -286,6 +286,7 @@ export function drawSpectrum(canvas: HTMLCanvasElement, spectrum: SpectrumPoint[
   const xFor = (frequency: number) =>
     padding.left + ((frequency - minFrequency) / (maxFrequency - minFrequency || 1)) * graphWidth;
   const yFor = (value: number) => padding.top + graphHeight - (value / maxMagnitude) * graphHeight * 0.9;
+  const tickLabelFor = (value: number) => (value >= 10 ? value.toFixed(1) : value.toFixed(2));
 
   drawGrid(context, width, height, 10, 4);
   context.strokeStyle = theme.axis;
@@ -295,6 +296,29 @@ export function drawSpectrum(canvas: HTMLCanvasElement, spectrum: SpectrumPoint[
   context.lineTo(padding.left, padding.top + graphHeight);
   context.lineTo(width - padding.right, padding.top + graphHeight);
   context.stroke();
+
+  context.save();
+  context.fillStyle = theme.text;
+  context.font = "600 12px Inter, system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText("重心のずれ", padding.left + 8, padding.top - 14);
+  context.fillStyle = theme.muted;
+  context.font = "500 10px Inter, system-ui, sans-serif";
+  context.fillText("Magnitude", padding.left + 88, padding.top - 14);
+  context.textAlign = "right";
+  context.textBaseline = "middle";
+  [maxMagnitude, maxMagnitude / 2, 0].forEach((tick) => {
+    const y = yFor(tick);
+    context.strokeStyle = theme.muted;
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(padding.left - 5, y);
+    context.lineTo(padding.left, y);
+    context.stroke();
+    context.fillStyle = theme.muted;
+    context.fillText(tickLabelFor(tick), padding.left - 8, y);
+  });
+  context.restore();
 
   drawPolyline(
     context,
