@@ -87,6 +87,29 @@ describe("canvas drawing", () => {
     expect(spectrumCanvas.context.calls.filter((call) => call === "fillText").length).toBeGreaterThan(1);
   });
 
+  it("draws trace progress overlays for fixed-frequency playback", () => {
+    const components: SignalComponent[] = [
+      { id: "a", frequency: 3, amplitude: 1, phase: Math.PI / 2, color: "#f8d95d" }
+    ];
+    const samples = generateSamples({ components, duration: 4, sampleCount: 64 });
+    const wrapped = wrapSignal(samples, 3);
+    const partial = wrapped.points.slice(0, 18);
+    const center = computeCenterOfMass(partial);
+
+    const waveform = createCanvas();
+    drawWaveform(waveform.canvas, samples, components, 3, 1.2);
+    expect(waveform.context.calls.filter((call) => call === "stroke").length).toBeGreaterThan(5);
+
+    const winding = createCanvas(360, 360);
+    drawWinding(winding.canvas, partial, center, 3, {
+      isTracing: true,
+      progress: 0.28,
+      referencePoints: wrapped.points
+    });
+    expect(winding.context.calls.filter((call) => call === "fill").length).toBeGreaterThanOrEqual(2);
+    expect(winding.context.calls.filter((call) => call === "fillText").length).toBeGreaterThanOrEqual(2);
+  });
+
   it("returns early for empty drawing data", () => {
     const waveform = createCanvas();
     drawWaveform(waveform.canvas, [], [], 1);

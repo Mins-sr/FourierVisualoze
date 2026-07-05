@@ -122,4 +122,42 @@ describe("App", () => {
     });
     expect(Number((slider as HTMLInputElement).value)).toBeGreaterThan(0);
   });
+
+  it("plays a fixed-frequency trace without sweeping the winding frequency", async () => {
+    const callbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    vi.spyOn(performance, "now").mockReturnValue(1000);
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    const slider = screen.getByLabelText("巻き取り周波数");
+    await user.click(screen.getByRole("button", { name: "軌跡を描く" }));
+    expect(screen.getByRole("button", { name: "軌跡を描く" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("軌跡進捗")).toHaveTextContent("100%");
+
+    await user.click(screen.getByRole("button", { name: "再生" }));
+    expect(screen.getByLabelText("軌跡進捗")).toHaveTextContent("0%");
+
+    await act(async () => {
+      callbacks[0](1080);
+    });
+
+    expect(slider).toHaveValue("2");
+    expect(screen.getByLabelText("軌跡進捗")).toHaveTextContent("2%");
+
+    for (let index = 1; index < 50; index += 1) {
+      await act(async () => {
+        callbacks[index](1080 + index * 80);
+      });
+    }
+
+    expect(slider).toHaveValue("2");
+    expect(screen.getByLabelText("軌跡進捗")).toHaveTextContent("100%");
+    expect(screen.getByRole("button", { name: "再生" })).toBeInTheDocument();
+  });
 });

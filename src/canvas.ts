@@ -12,6 +12,12 @@ type DrawTheme = {
   peak: string;
 };
 
+type WindingDrawOptions = {
+  isTracing?: boolean;
+  progress?: number;
+  referencePoints?: WrappedPoint[];
+};
+
 export const theme: DrawTheme = {
   axis: "#e8ece6",
   grid: "rgba(126, 211, 252, 0.22)",
@@ -96,7 +102,8 @@ export function drawWaveform(
   canvas: HTMLCanvasElement,
   samples: SignalSample[],
   components: SignalComponent[],
-  selectedFrequency: number
+  selectedFrequency: number,
+  activeTime?: number
 ) {
   const context = setupCanvas(canvas);
   if (!context || samples.length === 0) {
@@ -150,6 +157,18 @@ export function drawWaveform(
   }
   context.restore();
 
+  if (typeof activeTime === "number") {
+    const activeX = xFor(Math.min(duration, Math.max(0, activeTime)));
+    context.save();
+    context.strokeStyle = theme.peak;
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(activeX, padding.top);
+    context.lineTo(activeX, padding.top + graphHeight);
+    context.stroke();
+    context.restore();
+  }
+
   context.fillStyle = theme.text;
   context.font = "600 13px Inter, system-ui, sans-serif";
   context.fillText("Intensity", padding.left + 6, padding.top + 16);
@@ -160,7 +179,8 @@ export function drawWinding(
   canvas: HTMLCanvasElement,
   points: WrappedPoint[],
   center: CenterOfMass,
-  selectedFrequency: number
+  selectedFrequency: number,
+  options: WindingDrawOptions = {}
 ) {
   const context = setupCanvas(canvas);
   if (!context || points.length === 0) {
@@ -170,7 +190,9 @@ export function drawWinding(
   const { width, height } = canvas.getBoundingClientRect();
   const size = Math.min(width, height) * 0.76;
   const origin = { x: width / 2, y: height / 2 + 10 };
-  const max = maxAbsValue(points.flatMap((point) => [point.x, point.y]));
+  const referencePoints =
+    options.referencePoints && options.referencePoints.length > 0 ? options.referencePoints : points;
+  const max = maxAbsValue(referencePoints.flatMap((point) => [point.x, point.y]));
   const scale = size / 2 / max;
   const toScreen = (point: { x: number; y: number }) => ({
     x: origin.x + point.x * scale,
@@ -195,12 +217,34 @@ export function drawWinding(
   context.stroke();
   context.restore();
 
+  if (options.isTracing && referencePoints.length !== points.length) {
+    drawPolyline(
+      context,
+      referencePoints.map((point) => toScreen(point)),
+      theme.wave,
+      1.4,
+      0.22
+    );
+  }
+
   drawPolyline(
     context,
     points.map((point) => toScreen(point)),
-    theme.wave,
-    2.5
+    options.isTracing ? theme.peak : theme.wave,
+    options.isTracing ? 3 : 2.5
   );
+
+  const activePoint = points.at(-1);
+  if (options.isTracing && activePoint) {
+    const activeScreen = toScreen(activePoint);
+    context.fillStyle = theme.peak;
+    context.shadowColor = theme.peak;
+    context.shadowBlur = 10;
+    context.beginPath();
+    context.arc(activeScreen.x, activeScreen.y, 5, 0, Math.PI * 2);
+    context.fill();
+    context.shadowBlur = 0;
+  }
 
   const centerScreen = toScreen(center);
   context.strokeStyle = theme.axis;
@@ -221,6 +265,9 @@ export function drawWinding(
   context.fillStyle = theme.text;
   context.font = "600 13px Inter, system-ui, sans-serif";
   context.fillText(`${selectedFrequency.toFixed(2)} cycles / second`, 18, 28);
+  if (options.isTracing && typeof options.progress === "number") {
+    context.fillText(`${Math.round(options.progress * 100)}% traced`, 18, 46);
+  }
 }
 
 export function drawSpectrum(canvas: HTMLCanvasElement, spectrum: SpectrumPoint[], selectedFrequency: number) {

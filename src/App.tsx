@@ -19,6 +19,9 @@ import "./styles.css";
 
 const spectrumRange = { min: 0, max: 5, steps: 181 };
 const initialPreset = createPreset("two-three");
+const traceDurationSeconds = DEFAULT_DURATION;
+
+type PlaybackMode = "sweep" | "trace";
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? value.toString() : value.toFixed(2);
@@ -34,22 +37,34 @@ function App() {
   const [windingFrequency, setWindingFrequency] = useState(initialPreset.windingFrequency);
   const [sampleCount, setSampleCount] = useState(DEFAULT_SAMPLE_COUNT);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("sweep");
+  const [traceProgress, setTraceProgress] = useState(1);
 
   const samples = useMemo(
     () => generateSamples({ components, duration: DEFAULT_DURATION, sampleCount }),
     [components, sampleCount]
   );
   const wrapped = useMemo(() => wrapSignal(samples, windingFrequency), [samples, windingFrequency]);
-  const center = useMemo(() => computeCenterOfMass(wrapped.points), [wrapped.points]);
+  const tracePointCount = Math.max(1, Math.ceil(wrapped.points.length * traceProgress));
+  const visibleWrappedPoints = useMemo(
+    () => (playbackMode === "trace" ? wrapped.points.slice(0, tracePointCount) : wrapped.points),
+    [playbackMode, tracePointCount, wrapped.points]
+  );
+  const center = useMemo(() => computeCenterOfMass(visibleWrappedPoints), [visibleWrappedPoints]);
   const spectrum = useMemo(() => buildSpectrum(samples, spectrumRange), [samples]);
+  const activeTraceTime = playbackMode === "trace" ? traceProgress * DEFAULT_DURATION : undefined;
 
   useEffect(() => {
     const render = () => {
       if (waveformCanvas.current) {
-        drawWaveform(waveformCanvas.current, samples, components, windingFrequency);
+        drawWaveform(waveformCanvas.current, samples, components, windingFrequency, activeTraceTime);
       }
       if (windingCanvas.current) {
-        drawWinding(windingCanvas.current, wrapped.points, center, windingFrequency);
+        drawWinding(windingCanvas.current, visibleWrappedPoints, center, windingFrequency, {
+          isTracing: playbackMode === "trace",
+          progress: traceProgress,
+          referencePoints: wrapped.points
+        });
       }
       if (spectrumCanvas.current) {
         drawSpectrum(spectrumCanvas.current, spectrum, windingFrequency);
@@ -59,7 +74,18 @@ function App() {
     render();
     window.addEventListener("resize", render);
     return () => window.removeEventListener("resize", render);
-  }, [center, components, samples, spectrum, windingFrequency, wrapped.points]);
+  }, [
+    activeTraceTime,
+    center,
+    components,
+    playbackMode,
+    samples,
+    spectrum,
+    traceProgress,
+    visibleWrappedPoints,
+    windingFrequency,
+    wrapped.points
+  ]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -71,16 +97,27 @@ function App() {
     const tick = (now: number) => {
       const delta = Math.min(0.08, (now - previous) / 1000);
       previous = now;
-      setWindingFrequency((current) => {
-        const next = current + delta * 0.55;
-        return next > spectrumRange.max ? spectrumRange.min : next;
-      });
+      if (playbackMode === "sweep") {
+        setWindingFrequency((current) => {
+          const next = current + delta * 0.55;
+          return next > spectrumRange.max ? spectrumRange.min : next;
+        });
+      } else {
+        setTraceProgress((current) => {
+          const next = current + delta / traceDurationSeconds;
+          if (next >= 1) {
+            setIsPlaying(false);
+            return 1;
+          }
+          return next;
+        });
+      }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
 
     return () => cancelAnimationFrame(frame);
-  }, [isPlaying]);
+  }, [isPlaying, playbackMode]);
 
   const applyPreset = (id: string) => {
     const preset = createPreset(id);
@@ -88,10 +125,28 @@ function App() {
     setResetPresetId(preset.id);
     setComponents(preset.components);
     setWindingFrequency(preset.windingFrequency);
+    setTraceProgress(1);
   };
 
   const updateFrequency = (value: number) => {
     setWindingFrequency(clamp(value, spectrumRange.min, spectrumRange.max));
+  };
+
+  const updatePlaybackMode = (mode: PlaybackMode) => {
+    setPlaybackMode(mode);
+    setTraceProgress(1);
+  };
+
+  const togglePlayback = () => {
+    if (isPlaying) {
+      setIsPlaying(false);
+      return;
+    }
+
+    if (playbackMode === "trace" && traceProgress >= 1) {
+      setTraceProgress(0);
+    }
+    setIsPlaying(true);
   };
 
   const updateComponent = (id: string, patch: Partial<SignalComponent>) => {
@@ -106,6 +161,7 @@ function App() {
   const addComponent = () => {
     setComponents((current) => [...current, createComponent(current.length)]);
     setPresetId("custom");
+    setTraceProgress(1);
   };
 
   const removeComponent = (id: string) => {
@@ -178,6 +234,28 @@ function App() {
             <label htmlFor="winding-frequency">巻き取り周波数</label>
             <output>{windingFrequency.toFixed(2)} Hz</output>
           </div>
+          <div className="mode-switch" aria-label="再生モード">
+            <button
+              type="button"
+              aria-pressed={playbackMode === "sweep"}
+              onClick={() => updatePlaybackMode("sweep")}
+            >
+              周波数を掃引
+            </button>
+            <button
+              type="button"
+              aria-pressed={playbackMode === "trace"}
+              onClick={() => updatePlaybackMode("trace")}
+            >
+              軌跡を描く
+            </button>
+          </div>
+          {playbackMode === "trace" ? (
+            <div className="label-row trace-status">
+              <span>軌跡進捗</span>
+              <output aria-label="軌跡進捗">{Math.round(traceProgress * 100)}%</output>
+            </div>
+          ) : null}
           <input
             id="winding-frequency"
             aria-label="巻き取り周波数"
@@ -199,7 +277,7 @@ function App() {
             onChange={(event) => updateFrequency(event.currentTarget.valueAsNumber)}
           />
           <div className="button-row">
-            <button type="button" onClick={() => setIsPlaying((current) => !current)}>
+            <button type="button" onClick={togglePlayback}>
               {isPlaying ? <Pause aria-hidden="true" size={18} /> : <Play aria-hidden="true" size={18} />}
               {isPlaying ? "停止" : "再生"}
             </button>
